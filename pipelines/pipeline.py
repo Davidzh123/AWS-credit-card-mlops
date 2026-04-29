@@ -16,13 +16,14 @@ def main():
 
     sagemaker_session = sagemaker.Session(
         boto_session=boto_session,
-        default_bucket=BUCKET
+        default_bucket=BUCKET,
+        default_bucket_prefix="sagemaker-artifacts"
     )
 
     processor = SKLearnProcessor(
         framework_version="1.2-1",
         role=role,
-        instance_type="ml.m5.large",
+        instance_type="ml.t3.medium",
         instance_count=1,
         base_job_name="fraud-etl-processing",
         sagemaker_session=sagemaker_session,
@@ -33,11 +34,11 @@ def main():
         inputs=[
             ProcessingInput(
                 source=f"s3://{BUCKET}/raw/fraudTrain.csv",
-                destination="/opt/ml/processing/input/fraudTrain.csv",
+                destination="/opt/ml/processing/input/train",
             ),
             ProcessingInput(
                 source=f"s3://{BUCKET}/raw/fraudTest.csv",
-                destination="/opt/ml/processing/input/fraudTest.csv",
+                destination="/opt/ml/processing/input/test",
             ),
         ],
         outputs=[
@@ -47,8 +48,8 @@ def main():
             )
         ],
         arguments=[
-            "--input-train", "/opt/ml/processing/input/fraudTrain.csv",
-            "--input-test", "/opt/ml/processing/input/fraudTest.csv",
+            "--input-train", "/opt/ml/processing/input/train/fraudTrain.csv",
+            "--input-test", "/opt/ml/processing/input/test/fraudTest.csv",
             "--output-dir", "/opt/ml/processing/output",
         ],
     )

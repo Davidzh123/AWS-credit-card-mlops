@@ -1,88 +1,135 @@
 import argparse
 import os
 import pandas as pd
-
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from imblearn.over_sampling import SMOTE
+from sklearn.utils import resample
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input-train", type=str, default="/opt/ml/processing/input/fraudTrain.csv")
-    parser.add_argument("--input-test", type=str, default="/opt/ml/processing/input/fraudTest.csv")
-    parser.add_argument("--output-dir", type=str, default="/opt/ml/processing/output")
-    args = parser.parse_args()
+TARGET = "is_fraud"
 
-    train_df = pd.read_csv(args.input_train)
-    test_df = pd.read_csv(args.input_test)
 
-    df = pd.concat([train_df, test_df], ignore_index=True)
+def read_csv_safe(path):
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return pd.read_csv(path, engine="python")
 
-    columns_to_drop = [
-        "Unnamed: 0",
-        "cc_num",
-        "first",
-        "last",
-        "street",
-        "trans_num",
-        "trans_date_trans_time"
+
+def basic_feature_engineering(df):
+    df = df.copy()
+
+    # Convertir la date de transaction en variables numériques simples
+    if "trans_date_trans_time" in df.columns:
+        df["trans_date_trans_time"] = pd.to_datetime(
+            df["trans_date_trans_time"],
+            errors="coerce"
+        )
+        df["trans_hour"] = df["trans_date_trans_time"].dt.hour.fillna(0).astype(int)
+        df["trans_day"] = df["trans_date_trans_time"].dt.day.fillna(0).astype(int)
+        df["trans_month"] = df["trans_date_trans_time"].dt.month.fillna(0).astype(int)
+
+    # Garder seulement des colonnes utiles et légères
+    keep_cols = [
+        "amt",
+        "lat",
+        "long",
+        "city_pop",
+        "merch_lat",
+        "merch_long",
+        "trans_hour",
+        "trans_day",
+        "trans_month",
+        "category",
+        "gender",
+        TARGET,
     ]
 
-    df = df.drop(columns=[c for c in columns_to_drop if c in df.columns])
+    keep_cols = [c for c in keep_cols if c in df.columns]
+    df = df[keep_cols]
 
     # Gestion des valeurs manquantes
     for col in df.columns:
         if df[col].dtype == "object":
             df[col] = df[col].fillna("unknown")
         else:
-            df[col] = df[col].fillna(df[col].mean())
+            df[col] = df[col].fillna(df[col].median())
 
-    # Feature engineering date de naissance
-    if "dob" in df.columns:
-        df["dob"] = pd.to_datetime(df["dob"], errors="coerce")
-        df["birth_year"] = df["dob"].dt.year
-        df["birth_year"] = df["birth_year"].fillna(df["birth_year"].median())
-        df = df.drop(columns=["dob"])
-
-    target = "is_fraud"
-
-    if target not in df.columns:
-        raise ValueError(f"Colonne cible absente : {target}")
-
-    # Encodage catégoriel
-    categorical_cols = df.select_dtypes(include=["object"]).columns.tolist()
+    # Encodage léger seulement sur category et gender
+    categorical_cols = [c for c in ["category", "gender"] if c in df.columns]
     df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
 
-    X = df.drop(columns=[target])
-    y = df[target]
+    return df
 
-    # Normalisation
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
 
-    # Oversampling SMOTE
-    smote = SMOTE(random_state=42)
-    X_resampled, y_resampled = smote.fit_resample(X_scaled, y)
+def controlled_oversampling(df, target=TARGET, fraud_multiplier=3):
+    majority = df[df[target] == 0]
+    minority = df[df[target] == 1]
 
-    processed_df = pd.DataFrame(X_resampled, columns=X.columns)
-    processed_df[target] = y_resampled
+    print("Distribution avant oversampling:")
+    print(df[target].value_counts())
 
-    train_data, test_data = train_test_split(
-        processed_df,
-        test_size=0.2,
-        random_state=42,
-        stratify=processed_df[target]
+    if len(minority) == 0:
+        raise ValueError("Aucune fraude trouvée dans le dataset.")
+
+    target_minority_size = min(len(majority), len(minority) * fraud_multiplier)
+
+    minority_up = resample(
+        minority,
+        replace=True,
+        n_samples=target_minority_size,
+        random_state=42
     )
+
+    result = pd.concat([majority, minority_up])
+    result = result.sample(frac=1, random_state=42).reset_index(drop=True)
+
+    print("Distribution après oversampling:")
+    print(result[target].value_counts())
+
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input-train", type=str, required=True)
+    parser.add_argument("--input-test", type=str, required=True)
+    parser.add_argument("--output-dir", type=str, required=True)
+    args = parser.parse_args()
+
+    print("Lecture train:", args.input_train)
+    print("Lecture test:", args.input_test)
+
+    train_df = read_csv_safe(args.input_train)
+    test_df = read_csv_safe(args.input_test)
+
+    print("Train brut:", train_df.shape)
+    print("Test brut:", test_df.shape)
+
+    train_processed = basic_feature_engineering(train_df)
+    test_processed = basic_feature_engineering(test_df)
+
+    # Aligner les colonnes train/test après encodage
+    train_processed, test_processed = train_processed.align(
+        test_processed,
+        join="left",
+        axis=1,
+        fill_value=0
+    )
+
+    train_processed = controlled_oversampling(train_processed)
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    train_data.to_csv(os.path.join(args.output_dir, "train.csv"), index=False)
-    test_data.to_csv(os.path.join(args.output_dir, "test.csv"), index=False)
+    train_path = os.path.join(args.output_dir, "train.csv")
+    test_path = os.path.join(args.output_dir, "test.csv")
+
+    train_processed.to_csv(train_path, index=False)
+    test_processed.to_csv(test_path, index=False)
 
     print("ETL terminé.")
-    print("Train shape:", train_data.shape)
-    print("Test shape:", test_data.shape)
+    print("Train final:", train_processed.shape)
+    print("Test final:", test_processed.shape)
+    print("Output train:", train_path)
+    print("Output test:", test_path)
 
 
 if __name__ == "__main__":
