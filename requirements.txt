@@ -1,9 +1,7 @@
+sagemaker==2.232.2
+boto3
 pandas
 numpy
 scikit-learn
 imbalanced-learn
-joblib
-boto3
-sagemaker
-xgboost
 pytest
