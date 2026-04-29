@@ -1,0 +1,26 @@
+# Data
+data/
+*.csv
+*.zip
+*.parquet
+
+# Models
+*.pkl
+*.joblib
+*.tar.gz
+models/
+
+# Secrets
+.env
+kaggle.json
+*.pem
+aws_credentials
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
