@@ -2,11 +2,7 @@ version: 0.2
 
 phases:
   install:
-    runtime-versions:
-      python: 3.11
     commands:
-      - echo "Installing dependencies"
-      - pip install --upgrade pip
       - pip install -r requirements.txt
 
   pre_build:
@@ -16,9 +12,7 @@ phases:
 
   build:
     commands:
-      - echo "Launching SageMaker ML pipeline"
+      - echo "Launching SageMaker ETL/training"
       - python pipelines/pipeline.py
-
-  post_build:
-    commands:
-      - echo "CI/CD ML finished"
+      - echo "Deploying SageMaker endpoint"
+      - python pipelines/deploy_endpoint.py
