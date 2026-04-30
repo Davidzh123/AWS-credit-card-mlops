@@ -12,13 +12,13 @@ phases:
   pre_build:
     commands:
       - echo "Running tests"
-      - pytest tests/ || true
+      - pytest tests/
 
   build:
     commands:
-      - echo "Launching SageMaker pipeline"
+      - echo "Launching SageMaker ML pipeline"
       - python pipelines/pipeline.py
 
   post_build:
     commands:
-      - echo "Build completed"
+      - echo "CI/CD ML finished"

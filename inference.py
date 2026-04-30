@@ -2,7 +2,6 @@ import os
 import json
 import joblib
 import pandas as pd
-from io import StringIO
 
 
 def model_fn(model_dir):
@@ -12,6 +11,7 @@ def model_fn(model_dir):
 
 def input_fn(request_body, request_content_type):
     if request_content_type == "text/csv":
+        from io import StringIO
         return pd.read_csv(StringIO(request_body), header=None)
 
     if request_content_type == "application/json":
