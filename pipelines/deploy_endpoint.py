@@ -18,13 +18,22 @@ SECURITY_GROUPS = [
     "sg-05def7f4f02a29dca",
 ]
 
+INSTANCE_TYPE = "ml.t2.medium"
+INSTANCE_COUNT = 1
 
 sm = boto3.client("sagemaker", region_name=REGION)
 s3 = boto3.client("s3", region_name=REGION)
 
 
 def package_inference():
+    """
+    Package src/inference.py dans un fichier tar.gz
+    puis l'upload dans S3.
+    """
     tar_path = "/tmp/inference-source.tar.gz"
+
+    if not os.path.exists("src/inference.py"):
+        raise FileNotFoundError("src/inference.py introuvable")
 
     with tarfile.open(tar_path, "w:gz") as tar:
         tar.add("src/inference.py", arcname="inference.py")
@@ -36,6 +45,9 @@ def package_inference():
 
 
 def get_latest_completed_training_job():
+    """
+    Récupère le dernier training job SageMaker terminé.
+    """
     response = sm.list_training_jobs(
         NameContains="fraud-training",
         SortBy="CreationTime",
@@ -50,12 +62,38 @@ def get_latest_completed_training_job():
     raise Exception("Aucun training job Completed trouvé.")
 
 
-def endpoint_exists(name):
+def endpoint_exists(endpoint_name):
+    """
+    Vérifie si l'endpoint existe déjà.
+    """
     try:
-        sm.describe_endpoint(EndpointName=name)
+        sm.describe_endpoint(EndpointName=endpoint_name)
         return True
     except sm.exceptions.ClientError:
         return False
+
+
+def wait_for_endpoint(endpoint_name):
+    """
+    Attend que l'endpoint soit InService ou Failed.
+    """
+    print("Attente du déploiement de l'endpoint...")
+
+    while True:
+        response = sm.describe_endpoint(EndpointName=endpoint_name)
+        status = response["EndpointStatus"]
+
+        print("Endpoint status:", status)
+
+        if status == "InService":
+            print("Endpoint prêt.")
+            return
+
+        if status == "Failed":
+            reason = response.get("FailureReason", "Raison inconnue")
+            raise Exception(f"Endpoint FAILED : {reason}")
+
+        time.sleep(30)
 
 
 def main():
@@ -68,7 +106,9 @@ def main():
     training_job_name = get_latest_completed_training_job()
     print("Training job utilisé:", training_job_name)
 
-    training = sm.describe_training_job(TrainingJobName=training_job_name)
+    training = sm.describe_training_job(
+        TrainingJobName=training_job_name
+    )
 
     model_data = training["ModelArtifacts"]["S3ModelArtifacts"]
     image_uri = training["AlgorithmSpecification"]["TrainingImage"]
@@ -76,8 +116,8 @@ def main():
     print("Model data:", model_data)
     print("Image URI:", image_uri)
 
-    model_name = f"fraud-model-cicd-{timestamp}"
-    config_name = f"fraud-serverless-config-cicd-{timestamp}"
+    model_name = f"fraud-model-vpc-cicd-{timestamp}"
+    config_name = f"fraud-endpoint-config-vpc-cicd-{timestamp}"
 
     print("Création du model:", model_name)
 
@@ -106,10 +146,8 @@ def main():
             {
                 "VariantName": "AllTraffic",
                 "ModelName": model_name,
-                "ServerlessConfig": {
-                    "MemorySizeInMB": 2048,
-                    "MaxConcurrency": 2,
-                },
+                "InitialInstanceCount": INSTANCE_COUNT,
+                "InstanceType": INSTANCE_TYPE,
             }
         ],
     )
@@ -129,6 +167,10 @@ def main():
 
     print("Déploiement lancé.")
     print("Endpoint:", ENDPOINT_NAME)
+    print("Model:", model_name)
+    print("Endpoint config:", config_name)
+
+    wait_for_endpoint(ENDPOINT_NAME)
 
 
 if __name__ == "__main__":
