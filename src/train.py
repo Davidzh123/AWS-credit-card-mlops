@@ -10,18 +10,28 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", type=str, default="/opt/ml/input/data/train/train.csv")
     parser.add_argument("--model-dir", type=str, default="/opt/ml/model")
+    parser.add_argument("--n-estimators", type=int, default=100)
+    parser.add_argument("--max-depth", type=int, default=0)
+
     args = parser.parse_args()
 
     df = pd.read_csv(args.train)
 
     X = df.drop("is_fraud", axis=1)
-    y = df["is_fraud"]
+    y = df["is_fraud"].astype(int)
+
+    max_depth = None if args.max_depth == 0 else args.max_depth
+
+    print("Hyperparamètres:")
+    print("n_estimators =", args.n_estimators)
+    print("max_depth =", max_depth)
 
     model = RandomForestClassifier(
-        n_estimators=100,
+        n_estimators=args.n_estimators,
+        max_depth=max_depth,
         class_weight="balanced",
         random_state=42,
-        n_jobs=-1
+        n_jobs=-1,
     )
 
     model.fit(X, y)
